@@ -6,8 +6,8 @@
 #include <ir_Daikin.h>
 
 IRDaikinESP daikinir(D2);  // An IR LED is controlled by GPIO pin 4 (D2)
- 
- 
+
+
 //openhab MQQT settings
 const char* ssid = "...";
 const char* password = "...";
@@ -24,31 +24,30 @@ const char* swing_set = "bedroom/ac/swing/set";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
- 
+
 void setup_wifi() {
   delay(10);
-  // We start by connecting to a WiFi network
+
   Serial.println();
   Serial.print("Connecting to ");
   Serial.println(ssid);
- 
+
   WiFi.mode(WIFI_STA);
-  
   WiFi.begin(ssid, password);
- 
+
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
- 
+
   randomSeed(micros());
- 
+
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
   Serial.println(WiFi.localIP());
 }
- 
+
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -59,7 +58,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   for (int i = 0; i < length; i++) {
     p_payload.concat((char)payload[i]);
   }
-	Serial.println(p_payload);
+  Serial.println(p_payload);
 
   if (strcmp(topic, mode_set) == 0) {
     daikinir.setPower(1);
@@ -97,21 +96,23 @@ void callback(char* topic, byte* payload, unsigned int length) {
       daikinir.setSwingVertical(0);
     }
   }
-  Serial.print("power=");
-  Serial.println(daikinir.getPower());
-  Serial.print("mode=");
-  Serial.println(daikinir.getMode());
-  Serial.print("temp=");
-  Serial.println(daikinir.getTemp());
-  Serial.print("fan=");
-  Serial.println(daikinir.getFan());
-  Serial.print("swingh=");
-  Serial.println(daikinir.getSwingHorizontal());
-  Serial.print("swingv=");
-  Serial.println(daikinir.getSwingVertical());
-  daikinir.send();
+  if (strcmp(topic, power_set) != 0) {
+    Serial.print("power=");
+    Serial.println(daikinir.getPower());
+    Serial.print("mode=");
+    Serial.println(daikinir.getMode());
+    Serial.print("temp=");
+    Serial.println(daikinir.getTemp());
+    Serial.print("fan=");
+    Serial.println(daikinir.getFan());
+    Serial.print("swingh=");
+    Serial.println(daikinir.getSwingHorizontal());
+    Serial.print("swingv=");
+    Serial.println(daikinir.getSwingVertical());
+    daikinir.send();
+  }
 }
- 
+
 void reconnect() {
   // Loop until we're reconnected
   while (!client.connected()) {
@@ -136,7 +137,7 @@ void reconnect() {
     }
   }
 }
- 
+
 void setup() {
   Serial.begin(115200);
   setup_wifi();
@@ -151,8 +152,8 @@ void setup() {
   daikinir.setSwingVertical(1);
   daikinir.setTemp(25);
 }
- 
-void loop() { 
+
+void loop() {
   if (!client.connected()) {
     reconnect();
   }
