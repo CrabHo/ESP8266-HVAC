@@ -8,24 +8,31 @@
 IRDaikinESP daikinir(D2);  // An IR LED is controlled by GPIO pin 4 (D2)
 
 
-//openhab MQQT settings
+//Wifi
 const char* ssid = "...";
 const char* password = "...";
-const char* mqtt_server = "...";
-const char* brokerusername = "...";
-const char* brokerpassword = "...";
 
-//topic
-const char* power_set = "bedroom/ac/power/set";
-const char* mode_set = "bedroom/ac/mode/set";
-const char* temperature_set = "bedroom/ac/temperature/set";
-const char* fan_set = "bedroom/ac/fan/set";
-const char* swing_set = "bedroom/ac/swing/set";
+//MQTT server
+const char* mqttServer = "...";
+const char* mqttUsername = "...";
+const char* mqttPassword = "...";
+
+//MQTT topic
+const char* topicModeSet = "bedroom/ac/mode/set";
+const char* topicTemperatureSet = "bedroom/ac/temperature/set";
+const char* topicFanSet = "bedroom/ac/fan/set";
+const char* topicSwingSet = "bedroom/ac/swing/set";
+
+const char* topicModeState = "bedroom/ac/mode/state";
+const char* topicTemperatureState = "bedroom/ac/temperature/state";
+const char* topicFanState = "bedroom/ac/fan/state";
+const char* topicSwingState = "bedroom/ac/swing/state";
+const char* topicCurrentTemperatureState = "bedroom/ac/currenttemperature/state";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-void setup_wifi() {
+void setupWifi() {
   delay(10);
 
   Serial.println();
@@ -48,6 +55,76 @@ void setup_wifi() {
   Serial.println(WiFi.localIP());
 }
 
+void setupAc() {
+  daikinir.begin();
+  daikinir.setPower(0);
+  daikinir.setFan(kDaikinFanAuto);
+  daikinir.setMode(kDaikinCool);
+  daikinir.setSwingHorizontal(1);
+  daikinir.setSwingVertical(1);
+  daikinir.setTemp(23);
+}
+
+void sendIrSignal() {
+  daikinir.send();
+}
+
+void sendMqttState() {
+  switch (daikinir.getPower()) {
+    case 0:
+      client.publish(topicModeState, "off");
+      break;
+    case 1:
+      switch (daikinir.getMode()) {
+        case kDaikinAuto:
+          client.publish(topicModeState, "auto");
+          break;
+        case kDaikinCool:
+          client.publish(topicModeState, "cool");
+          break;
+        case kDaikinHeat:
+          client.publish(topicModeState, "heat");
+          break;
+        case kDaikinDry:
+          client.publish(topicModeState, "dry");
+          break;
+        case kDaikinFan:
+          client.publish(topicModeState, "fan_only");
+          break;
+        default:
+          client.publish(topicModeState, "cool");
+      }
+      break;
+    default:
+      client.publish(topicModeState, "off");
+  }
+  switch (daikinir.getFan()) {
+    case kDaikinFanAuto:
+      client.publish(topicFanState, "auto");
+      break;
+    case kDaikinFanMin:
+      client.publish(topicFanState, "low");
+      break;
+    case kDaikinFanMed:
+      client.publish(topicFanState, "medium");
+      break;
+    case kDaikinFanMax:
+      client.publish(topicFanState, "high");
+      break;
+    default:
+      client.publish(topicFanState, "auto");
+  }
+  
+  if (daikinir.getSwingHorizontal()) {
+    client.publish(topicSwingState, "on");
+  } else {
+    client.publish(topicSwingState, "off");
+  }
+
+  client.publish(topicTemperatureState, String(daikinir.getTemp()).c_str());
+  Serial.println("Sent state to mqtt server.");
+}
+
 void callback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");
   Serial.print(topic);
@@ -60,7 +137,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println(p_payload);
 
-  if (strcmp(topic, mode_set) == 0) {
+  if (strcmp(topic, topicModeSet) == 0) {
     daikinir.setPower(1);
     if (p_payload == "auto") {
       daikinir.setMode(kDaikinAuto);
@@ -75,9 +152,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
     } else {
       daikinir.setPower(0);
     }
-  } else if (strcmp(topic, temperature_set) == 0) {
+  } else if (strcmp(topic, topicTemperatureSet) == 0) {
     daikinir.setTemp(strtoul(p_payload.c_str(), NULL, 10));
-  } else if (strcmp(topic, fan_set) == 0) {
+  } else if (strcmp(topic, topicFanSet) == 0) {
     if (p_payload == "auto") {
       daikinir.setFan(kDaikinFanAuto);
     } else if (p_payload == "low") {
@@ -87,7 +164,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     } else if (p_payload == "high") {
       daikinir.setFan(kDaikinFanMax);
     }
-  } else if (strcmp(topic, swing_set) == 0) {
+  } else if (strcmp(topic, topicSwingSet) == 0) {
     if (p_payload == "on") {
       daikinir.setSwingHorizontal(1);
       daikinir.setSwingVertical(1);
@@ -96,43 +173,42 @@ void callback(char* topic, byte* payload, unsigned int length) {
       daikinir.setSwingVertical(0);
     }
   }
-  if (strcmp(topic, power_set) != 0) {
-    Serial.print("power=");
-    Serial.println(daikinir.getPower());
-    Serial.print("mode=");
-    Serial.println(daikinir.getMode());
-    Serial.print("temp=");
-    Serial.println(daikinir.getTemp());
-    Serial.print("fan=");
-    Serial.println(daikinir.getFan());
-    Serial.print("swingh=");
-    Serial.println(daikinir.getSwingHorizontal());
-    Serial.print("swingv=");
-    Serial.println(daikinir.getSwingVertical());
-    daikinir.send();
-  }
+
+  Serial.print("power=");
+  Serial.println(daikinir.getPower());
+  Serial.print("mode=");
+  Serial.println(daikinir.getMode());
+  Serial.print("temp=");
+  Serial.println(daikinir.getTemp());
+  Serial.print("fan=");
+  Serial.println(daikinir.getFan());
+  Serial.print("swingh=");
+  Serial.println(daikinir.getSwingHorizontal());
+  Serial.print("swingv=");
+  Serial.println(daikinir.getSwingVertical());
+  
+  sendIrSignal();
+  sendMqttState();
 }
 
 void reconnect() {
-  // Loop until we're reconnected
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
+
     String clientId = "ESP8266Client-";
     clientId += String(random(0xffff), HEX);
-    // Attempt to connect
-    if (client.connect(clientId.c_str(), brokerusername, brokerpassword)) {
+
+    if (client.connect(clientId.c_str(), mqttUsername, mqttPassword)) {
       Serial.println("connected");
-      client.subscribe(power_set);
-      client.subscribe(mode_set);
-      client.subscribe(temperature_set);
-      client.subscribe(fan_set);
-      client.subscribe(swing_set);
+      client.subscribe(topicModeSet);
+      client.subscribe(topicTemperatureSet);
+      client.subscribe(topicFanSet);
+      client.subscribe(topicSwingSet);
+      sendMqttState();
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
       delay(5000);
     }
   }
@@ -140,17 +216,11 @@ void reconnect() {
 
 void setup() {
   Serial.begin(115200);
-  setup_wifi();
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
+  setupWifi();
+  setupAc();
 
-  daikinir.begin();
-  daikinir.setPower(0);
-  daikinir.setFan(kDaikinFanAuto);
-  daikinir.setMode(kDaikinCool);
-  daikinir.setSwingHorizontal(1);
-  daikinir.setSwingVertical(1);
-  daikinir.setTemp(25);
+  client.setServer(mqttServer, 1883);
+  client.setCallback(callback);
 }
 
 void loop() {
