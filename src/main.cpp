@@ -4,9 +4,9 @@
 #include <WiFiUdp.h>
 #include <EEPROM.h>
 #include <ir_Daikin.h>
-
+#include <DHT.h>
 IRDaikinESP daikinir(D2);  // An IR LED is controlled by GPIO pin 4 (D2)
-
+DHT dht;
 
 //Wifi
 const char* ssid = "...";
@@ -31,6 +31,8 @@ const char* topicCurrentTemperatureState = "bedroom/ac/currenttemperature/state"
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+unsigned long lastread;
+float humidity, temperature;
 
 void setupWifi() {
   delay(10);
@@ -114,7 +116,7 @@ void sendMqttState() {
     default:
       client.publish(topicFanState, "auto");
   }
-  
+
   if (daikinir.getSwingHorizontal()) {
     client.publish(topicSwingState, "on");
   } else {
@@ -186,7 +188,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println(daikinir.getSwingHorizontal());
   Serial.print("swingv=");
   Serial.println(daikinir.getSwingVertical());
-  
+
   sendIrSignal();
   sendMqttState();
 }
@@ -218,9 +220,42 @@ void setup() {
   Serial.begin(115200);
   setupWifi();
   setupAc();
-
+  dht.setup(D3);
   client.setServer(mqttServer, 1883);
   client.setCallback(callback);
+}
+
+char *f2s(float f, int p){
+  char * pBuff;                         // use to remember which part of the buffer to use for dtostrf
+  const int iSize = 10;                 // number of bufffers, one for each float before wrapping around
+  static char sBuff[iSize][20];         // space for 20 characters including NULL terminator for each float
+  static int iCount = 0;                // keep a tab of next place in sBuff to use
+  pBuff = sBuff[iCount];                // use this buffer
+  if(iCount >= iSize -1){               // check for wrap
+    iCount = 0;                         // if wrapping start again and reset
+  }
+  else{
+    iCount++;                           // advance the counter
+  }
+  return dtostrf(f, 0, p, pBuff);       // call the library function
+}
+
+void sendCurrentTemperatureState() {
+  if((millis() - lastread) > 60000) // time to update
+  {
+    temperature = dht.getTemperature();
+    humidity = dht.getHumidity();
+    lastread = millis();
+    // Check if any reads failed and exit early (to try again).
+    if (isnan(humidity) || isnan(temperature)) {
+      Serial.println("Failed to read from DHT sensor!");
+      return;
+    } else {
+      char payload[6];
+      sprintf(payload,"%s",f2s(temperature, 0));
+      client.publish(topicCurrentTemperatureState, payload);
+    }
+  }
 }
 
 void loop() {
@@ -228,4 +263,5 @@ void loop() {
     reconnect();
   }
   client.loop();
+  sendCurrentTemperatureState();
 }
